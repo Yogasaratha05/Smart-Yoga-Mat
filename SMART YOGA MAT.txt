@@ -1,0 +1,142 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <HX711_ADC.h>
+#include <EEPROM.h>
+
+// LCD Configuration
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// HX711 Pins
+const int HX711_dout = 4;
+const int HX711_sck = 5;
+
+// HX711 Load Cell
+HX711_ADC LoadCell(HX711_dout, HX711_sck);
+
+// Calibration Configuration
+const int calVal_eepromAdress = 0;
+float calibrationValue = 94696.0;
+
+// Timing Variables
+unsigned long t = 0;
+const unsigned long stabilizingTime = 2000;
+const unsigned long serialPrintInterval = 500;
+
+// Function to initialize the system
+void setup() {
+    Serial.begin(57600);
+    delay(10);
+
+    // Initialize LCD
+    lcd.init();
+    lcd.backlight();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Weight Based");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Yoga System");
+
+    Serial.println();
+    Serial.println("Starting Smart Yoga Mat...");
+
+    // Initialize Load Cell
+    LoadCell.begin();
+
+    boolean tare = true;
+    LoadCell.start(stabilizingTime, tare);
+
+    if (LoadCell.getTareTimeoutFlag()) {
+        Serial.println("Tare timeout!");
+        Serial.println("Check HX711 wiring and pin settings.");
+
+        lcd.clear();
+        lcd.print("Sensor Error");
+
+        while (1);
+    }
+
+    // Set Calibration Value
+    LoadCell.setCalFactor(calibrationValue);
+
+    Serial.println("Startup Complete");
+
+    delay(2000);
+    lcd.clear();
+}
+
+// Main Loop
+void loop() {
+    static boolean newDataReady = false;
+
+    // Check for new load cell data
+    if (LoadCell.update()) {
+        newDataReady = true;
+    }
+
+    // Process new data
+    if (newDataReady) {
+        if (millis() - t >= serialPrintInterval) {
+
+            float weight = LoadCell.getData();
+
+            Serial.print("Load Cell Output: ");
+            Serial.println(weight);
+
+            // Display Weight
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Weight:");
+            lcd.setCursor(8, 0);
+            lcd.print(weight * 100);
+            lcd.print("g");
+
+            // Suggest Yoga Pose
+            if (weight * 100 > 20 && weight * 100 < 40) {
+
+                lcd.setCursor(0, 1);
+                lcd.print("Do: Vajrasanam");
+
+                Serial.println("Suggested Pose: Vajrasanam");
+
+            } else if (weight * 100 >= 40 && weight * 100 < 80) {
+
+                lcd.setCursor(0, 1);
+                lcd.print("Do: Badmasanam");
+
+                Serial.println("Suggested Pose: Badmasanam");
+
+            } else if (weight * 100 >= 80 && weight * 100 < 100) {
+
+                lcd.setCursor(0, 1);
+                lcd.print("Do: Sirasasanam");
+
+                Serial.println("Suggested Pose: Sirasasanam");
+
+            } else {
+
+                lcd.setCursor(0, 1);
+                lcd.print("No Pose Assigned");
+
+                Serial.println("No Pose Assigned");
+            }
+
+            newDataReady = false;
+            t = millis();
+        }
+    }
+
+    // Tare command through Serial Monitor
+    if (Serial.available() > 0) {
+        char command = Serial.read();
+
+        if (command == 't') {
+            LoadCell.tareNoDelay();
+        }
+    }
+
+    // Check tare completion
+    if (LoadCell.getTareStatus()) {
+        Serial.println("Tare Complete");
+    }
+}
